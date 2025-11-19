@@ -152,3 +152,9 @@ uint32_t TMC2240Driver::readRegister(uint8_t reg) {
 
     return data;
 }
+
+float TMC2240Driver::getChipTemperature() {
+    uint32_t adc_val = readRegister(0x51); // ADC_TEMP
+    // Formula: T = (ADC - 2038) / 7.7
+    return ((float)(adc_val & 0xFFF) - 2038.0f) / 7.7f;
+}

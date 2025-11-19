@@ -19,6 +19,7 @@ public:
     // TMC2240 specific
     void writeRegister(uint8_t reg, uint32_t data);
     uint32_t readRegister(uint8_t reg);
+    float getChipTemperature();
 
 private:
     int _cs_pin;

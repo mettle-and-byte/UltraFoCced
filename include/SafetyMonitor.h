@@ -22,6 +22,7 @@ public:
 
     // Safety Limits
     void setMaxMCUTemp(float tempC);
+    void setMotorTempCallback(float (*callback)());
 
     // Commander Interface
     void commander(char* cmd);
@@ -29,6 +30,7 @@ public:
 private:
     int _fanPin;
     int _endstopPin;
+    float (*_motorTempCallback)() = nullptr;
 
     float _maxMCUTemp = 80.0f; // Default safe limit
     bool _fanOverride = false;

@@ -50,25 +50,30 @@ void SafetyMonitor::setMaxMCUTemp(float tempC) {
     _maxMCUTemp = tempC;
 }
 
+void SafetyMonitor::setMotorTempCallback(float (*callback)()) {
+    _motorTempCallback = callback;
+}
+
 void SafetyMonitor::updateTemperature() {
     // RP2040/RP2350 internal temp sensor is on ADC 4
-    // Formula from datasheet: T = 27 - (ADC_voltage - 0.706) / 0.001721
-    // But Arduino-Pico core might have a helper `analogReadTemp()`?
-    // Let's use the raw calculation for portability if helper missing, but `analogReadTemp()` is standard in this core.
-
     _currentMCUTemp = analogReadTemp();
 }
 
 void SafetyMonitor::checkSafety() {
-    if (_currentMCUTemp > _maxMCUTemp) {
+    float motorTemp = 0.0f;
+    if (_motorTempCallback) {
+        motorTemp = _motorTempCallback();
+    }
+
+    if (_currentMCUTemp > _maxMCUTemp || motorTemp > _maxMCUTemp) {
         // Overtemp! Turn on fan regardless of override
         setFanState(true);
         // TODO: Disable motor driver here when we have the driver object
     } else if (!_fanOverride) {
         // Auto fan control hysteresis
-        if (_currentMCUTemp > 50.0f) {
+        if (_currentMCUTemp > 50.0f || motorTemp > 50.0f) {
             setFanState(true);
-        } else if (_currentMCUTemp < 45.0f) {
+        } else if (_currentMCUTemp < 45.0f && motorTemp < 45.0f) {
             setFanState(false);
         }
     }
@@ -92,7 +97,12 @@ void SafetyMonitor::commander(char* cmd) {
             break;
         case 'T': // Temp Status: T?
             if (cmd[1] == '?') {
-                Serial.print("MCU Temp: "); Serial.println(_currentMCUTemp);
+                Serial.print("MCU Temp: "); Serial.print(_currentMCUTemp);
+                if (_motorTempCallback) {
+                    Serial.print(" | Motor Temp: "); Serial.println(_motorTempCallback());
+                } else {
+                    Serial.println();
+                }
             }
             break;
         case 'E': // Endstop Status: E?

@@ -44,15 +44,21 @@ StepperMotor motor = StepperMotor(50);
 void doSafety(char* cmd) { safety.commander(cmd); }
 void doTarget(char* cmd) { command.motion(&motor, cmd); }
 
+// Helper for SafetyMonitor
+float readMotorTemp() {
+    return driver.getChipTemperature();
+}
+
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
 
   unsigned long start = millis();
   while (!Serial && millis() - start < 5000);
-  Serial.println("MnB Ultralight N17 Firmware - Phase 4 (Motor)");
+  Serial.println("MnB Ultralight N17 Firmware - Phase 4 (Motor + Temp)");
 
   // Initialize Safety Monitor
+  safety.setMotorTempCallback(readMotorTemp);
   safety.init();
 
   // Initialize Encoder
