@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <SimpleFOC.h>
 #include "SafetyMonitor.h"
-#include "FixedPioSPI.h"
+#include <SimplePioSPI.h>
+#include "encoders/as5047/MagneticSensorAS5047.h"
 
 // Pin Definitions
 #define LED_PIN 23
@@ -13,7 +14,7 @@
 #define ENC_SCK 20
 #define ENC_MISO 21
 #define ENC_MOSI 22
-#define DUMMY_CS 24 // Unused pin for PioSPI to toggle (we let SimpleFOC handle real CS)
+#define DUMMY_CS 24 // Unused
 
 // Instantiate SafetyMonitor
 SafetyMonitor safety(FAN_PIN, ENDSTOP_PIN);
@@ -22,11 +23,11 @@ SafetyMonitor safety(FAN_PIN, ENDSTOP_PIN);
 Commander command = Commander(Serial);
 
 // Instantiate PIO SPI
-// MOSI, MISO, SCK, CS, MODE, FREQ
-FixedPioSPI pio_spi(ENC_MOSI, ENC_MISO, ENC_SCK, DUMMY_CS, SPI_MODE1, 1000000);
+// MOSI, MISO, SCK, CS, PIO, SM
+SimplePioSPI pio_spi(ENC_MOSI, ENC_MISO, ENC_SCK, DUMMY_CS, pio0, 0);
 
 // Instantiate Encoder
-MagneticSensorSPI sensor = MagneticSensorSPI(AS5047_SPI, ENC_CS);
+MagneticSensorAS5047 sensor = MagneticSensorAS5047(ENC_CS);
 
 // Commander Callbacks
 void doSafety(char* cmd) { safety.commander(cmd); }
@@ -35,6 +36,7 @@ void doAngle(char* cmd) {
     Serial.print("Angle: "); Serial.println(angle);
 }
 
+
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
@@ -42,7 +44,7 @@ void setup() {
   // Wait for serial connection for up to 5 seconds
   unsigned long start = millis();
   while (!Serial && millis() - start < 5000);
-  Serial.println("MnB Ultralight N17 Firmware - Phase 3 (Encoder)");
+  Serial.println("MnB Ultralight N17 Firmware - Phase 3 (Encoder SimplePioSPI)");
 
   // Initialize Safety Monitor
   safety.init();
@@ -66,6 +68,7 @@ void loop() {
   if (millis() - last_blink > 500) {
     last_blink = millis();
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    // Serial.println("DEBUG: Heartbeat"); // Optional: Uncomment if loop hangs
   }
 
   // Run Safety Monitor
@@ -76,4 +79,18 @@ void loop() {
 
   // Run Commander
   command.run();
+
+  // Periodic Angle Query
+  static unsigned long last_angle_query = 0;
+  if (millis() - last_angle_query > 200) {
+    last_angle_query = millis();
+
+    float angle_deg = sensor.getAngle() * (180.0 / PI);
+    uint16_t agc = sensor.readMagnitude();
+    bool error = sensor.isErrorFlag();
+
+    Serial.print("Angle: "); Serial.print(angle_deg); Serial.print(" deg");
+    Serial.print(" | AGC: "); Serial.print(agc);
+    Serial.print(" | Err: "); Serial.println(error ? "YES" : "NO");
+  }
 }
