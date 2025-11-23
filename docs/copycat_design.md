@@ -183,6 +183,50 @@ Configuration is stored locally in `config.ini`.
   action = ESTOP
   ```
 
+## 8. Final Design Considerations
+
+### 8.1. "Move to Start" Safety
+- **Risk**: If the arm is at 90° and the recording starts at 0°, starting playback immediately will cause a violent snap.
+- **Mitigation**: **Homing Phase**.
+  - When `PLAYBACK_START` is received, the Leader does *not* broadcast `START_PLAYBACK_AT` immediately.
+  - Instead, it broadcasts `MOVE_TO_START(duration_ms)`.
+  - Each node calculates a trajectory from `current_angle` to `recording_start_angle` over `duration_ms`.
+  - Once all nodes report `AT_START`, the Leader proceeds with `START_PLAYBACK_AT`.
+
+### 8.2. Node Replacement Strategy
+- **Problem**: If Node 3 dies and is replaced, the new node might auto-assign ID 6 (next available), breaking the recording.
+- **Solution**: **Manual ID Override**.
+  - Command: `set_node_id <current_id> <new_id>`.
+  - Procedure: User connects to the new node (ID 6), sends `set_node_id 6 3`, and reboots.
+
+### 8.3. CAN Priority Scheme
+- **Mechanism**: CAN-FD Arbitration ID (11-bit or 29-bit). Lower value = Higher Priority.
+- **Structure**: `(Priority << 7) | NodeID`.
+  - **Priority 0 (Highest)**: `ESTOP`, `HEARTBEAT` (Critical Safety).
+  - **Priority 1**: `SYNC` (Timing).
+  - **Priority 2**: `STATE_CHANGE` (Command & Control).
+  - **Priority 3-6**: Reserved.
+  - **Priority 7 (Lowest)**: `LOGGING`, `DEBUG` (Bulk Data).
+
+### 8.4. Clock Smoothing
+- **Problem**: Hard resetting the local clock on every `SYNC` can cause `dt` jumps, leading to velocity spikes in the FOC loop.
+- **Solution**: **Slewed Offset**.
+  - Instead of `offset = new_offset`, use `offset += (new_offset - offset) * 0.1`.
+  - This filters out jitter and ensures time changes are gradual.
+
+### 8.5. Recording Export & Recovery
+- **Use Case**: Backup all recordings to PC, or restore a recording to a replaced node.
+- **Export (Dump)**:
+  - User sends `dump_all` to any node via USB (The "Sink").
+  - Sink sequentially requests data from each Node ID (0-5).
+  - Target Node streams `DATA_CHUNK` messages (512 bytes) over CAN.
+  - Sink forwards data to USB (Hex/Base64).
+- **Import (Restore)**:
+  - User sends `restore_node <node_id> <hex_data>` to Sink via USB.
+  - Sink streams `DATA_CHUNK` messages to Target Node.
+  - Target Node writes to Flash.
+- **Note**: This allows recovering a specific joint's motion profile after hardware replacement.
+
 ## 9. Implementation Gap Analysis
 
 ### 9.1. Missing Firmware Features
