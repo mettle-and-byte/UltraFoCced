@@ -5,22 +5,8 @@
 #include "TMC2240Driver.h"
 #include "encoders/as5047/MagneticSensorAS5047.h"
 
-// Pin Definitions
-#define LED_PIN 23
-#define FAN_PIN 16
-#define ENDSTOP_PIN 18
-
-// TMC2240 Pins
-#define DRV_CS 5
-#define DRV_EN 0
-#define DRV_UART_EN 29
-
-// Encoder Pins
-#define ENC_CS 19
-#define ENC_SCK 20
-#define ENC_MISO 21
-#define ENC_MOSI 22
-#define DUMMY_CS 24 // Unused
+#include "BoardConfig.h"
+#include <pico/bootrom.h>
 
 // Instantiate SafetyMonitor
 SafetyMonitor safety(FAN_PIN, ENDSTOP_PIN);
@@ -35,16 +21,82 @@ SimplePioSPI pio_spi(ENC_MOSI, ENC_MISO, ENC_SCK, DUMMY_CS, pio0, 0);
 // Instantiate Encoder
 MagneticSensorAS5047 sensor = MagneticSensorAS5047(ENC_CS);
 
+// Motor Configuration (Will be loaded from config.ini later)
+float motor_phase_resistance = 2.5f;
+int motor_max_current_ma = 2000;
+
 // Instantiate Motor Driver
-TMC2240Driver driver(DRV_CS, DRV_EN, DRV_UART_EN);
+TMC2240Driver driver(DRV_CS, DRV_EN, DRV_UART_EN, DRV_MISO, DRV_MOSI, DRV_SCK, TMC2240_RREF, motor_phase_resistance, motor_max_current_ma);
 
 // Instantiate Motor
 // 50 pole pairs for 1.8deg stepper
 StepperMotor motor = StepperMotor(50);
 
 // Commander Callbacks
+bool monitor_enabled = false;
 void doSafety(char* cmd) { safety.commander(cmd); }
 void doTarget(char* cmd) { command.motion(&motor, cmd); }
+void doMonitor(char* cmd) {
+    monitor_enabled = !monitor_enabled;
+    if(monitor_enabled) Serial.println("Monitor: ON");
+    else Serial.println("Monitor: OFF");
+}
+void doBootloader(char* cmd) {
+    Serial.println("Entering Bootloader...");
+    delay(100);
+    reset_usb_boot(0, 0);
+}
+
+void doDebug(char* cmd) {
+    uint32_t gstat = driver.getGSTAT();
+    uint32_t drv_status = driver.getDRVSTATUS();
+    uint32_t gconf = driver.readRegister(0x00);
+    uint32_t ioin = driver.getIOIN();
+
+    Serial.println("--- TMC2240 Debug ---");
+
+    // GSTAT
+    Serial.print("GSTAT: 0x"); Serial.println(gstat, HEX);
+    if(gstat & (1<<0)) Serial.println("  [0] reset");
+    if(gstat & (1<<1)) Serial.println("  [1] drv_err");
+    if(gstat & (1<<2)) Serial.println("  [2] uv_cp");
+    if(gstat & (1<<11)) Serial.println("  [11] vm_uvlo");
+
+    // DRV_STATUS
+    Serial.print("DRV_STATUS: 0x"); Serial.println(drv_status, HEX);
+    if(drv_status & (1<<0)) Serial.println("  [0] stst");
+    if(drv_status & (1<<1)) Serial.println("  [1] stealth");
+    if(drv_status & (1<<24)) Serial.println("  [24] s2ga");
+    if(drv_status & (1<<25)) Serial.println("  [25] s2gb");
+    if(drv_status & (1<<26)) Serial.println("  [26] ola");
+    if(drv_status & (1<<27)) Serial.println("  [27] olb");
+    if(drv_status & (1<<28)) Serial.println("  [28] otpw");
+    if(drv_status & (1<<29)) Serial.println("  [29] ot");
+    if(drv_status & (1<<30)) Serial.println("  [30] stallGuard");
+
+    // GCONF
+    Serial.print("GCONF: 0x"); Serial.println(gconf, HEX);
+    if(gconf & (1<<0)) Serial.println("  [0] analog_gain");
+    if(gconf & (1<<1)) Serial.println("  [1] internal_rsense");
+    if(gconf & (1<<2)) Serial.println("  [2] en_spreadCycle");
+    if(gconf & (1<<3)) Serial.println("  [3] shaft");
+    if(gconf & (1<<4)) Serial.println("  [4] step_interpol");
+    if(gconf & (1<<5)) Serial.println("  [5] stop_enable");
+    if(gconf & (1<<6)) Serial.println("  [6] direct_mode");
+    if(gconf & (1<<7)) Serial.println("  [7] test_mode");
+
+    // IOIN
+    Serial.print("IOIN: 0x"); Serial.println(ioin, HEX);
+    if(ioin & (1<<0)) Serial.println("  [0] step");
+    if(ioin & (1<<1)) Serial.println("  [1] dir");
+    if(ioin & (1<<2)) Serial.println("  [2] enc_a");
+    if(ioin & (1<<3)) Serial.println("  [3] enc_b");
+    if(ioin & (1<<4)) Serial.println("  [4] enc_n");
+    if(ioin & (1<<5)) Serial.println("  [5] drv_enn");
+    if(ioin & (1<<6)) Serial.println("  [6] uart_en");
+    if(ioin & (1<<7)) Serial.println("  [7] clk");
+    Serial.print("  Version: 0x"); Serial.println((ioin >> 24) & 0xFF, HEX);
+}
 
 // Helper for SafetyMonitor
 float readMotorTemp() {
@@ -89,7 +141,10 @@ void setup() {
 
   // Add Commander commands
   command.add('S', doSafety, "Safety Monitor");
-  command.add('M', doTarget, "Motor Target");
+  command.add('T', doTarget, "Motor Target");
+  command.add('M', doMonitor, "Toggle Monitor");
+  command.add('B', doBootloader, "Enter Bootloader");
+  command.add('D', doDebug, "Decode Registers");
 
   Serial.println("Ready. Mode: Open Loop Velocity");
 }
@@ -118,12 +173,53 @@ void loop() {
   if (millis() - last_angle_query > 200) {
     last_angle_query = millis();
 
-    float angle_deg = sensor.getAngle() * (180.0 / PI);
-    uint16_t agc = sensor.readMagnitude();
-    bool error = sensor.isErrorFlag();
+    if (monitor_enabled) {
+        float angle_deg = sensor.getAngle() * (180.0 / PI);
+        uint16_t agc = sensor.readMagnitude();
+        bool error = sensor.isErrorFlag();
 
-    Serial.print("Angle: "); Serial.print(angle_deg); Serial.print(" deg");
-    Serial.print(" | AGC: "); Serial.print(agc);
-    Serial.print(" | Err: "); Serial.println(error ? "YES" : "NO");
+        float temp = driver.getChipTemperature();
+        uint32_t gstat = driver.getGSTAT();
+        uint32_t drv_status = driver.getDRVSTATUS();
+        uint32_t gconf = driver.readRegister(0x00); // GCONF
+        uint32_t ioin = driver.getIOIN();
+        uint32_t adc_raw = driver.readRegister(0x51); // Raw ADC
+
+        // Debug Encoder Error
+        uint16_t enc_err = 0;
+        if(error) {
+            // Manual read of ERRFL (0x0001)
+            // Command: Read (Bit 14) | Address 0x0001 | Parity (Bit 15)
+            // 0x4001 (Binary 0100 0000 0000 0001) -> 2 bits set -> Parity 0 -> 0x4001
+
+            SPISettings enc_settings(1000000, MSBFIRST, SPI_MODE1);
+            pio_spi.beginTransaction(enc_settings);
+            digitalWrite(ENC_CS, LOW);
+            pio_spi.transfer16(0x4001); // Send Command
+            digitalWrite(ENC_CS, HIGH);
+            pio_spi.endTransaction();
+
+            delayMicroseconds(10);
+
+            pio_spi.beginTransaction(enc_settings);
+            digitalWrite(ENC_CS, LOW);
+            enc_err = pio_spi.transfer16(0xC000); // Read Result (NOP)
+            digitalWrite(ENC_CS, HIGH);
+            pio_spi.endTransaction();
+
+            enc_err &= 0x3FFF; // Mask data
+        }
+
+        Serial.print("Angle: "); Serial.print(angle_deg); Serial.print(" deg");
+        Serial.print(" | AGC: "); Serial.print(agc);
+        Serial.print(" | Err: "); Serial.print(error ? "YES" : "NO");
+        if(error) { Serial.print(" (0x"); Serial.print(enc_err, HEX); Serial.print(")"); }
+        Serial.print(" | Temp: "); Serial.print(temp);
+        Serial.print(" | ADC: 0x"); Serial.print(adc_raw, HEX);
+        Serial.print(" | GSTAT: 0x"); Serial.print(gstat, HEX);
+        Serial.print(" | DRV: 0x"); Serial.print(drv_status, HEX);
+        Serial.print(" | GCONF: 0x"); Serial.print(gconf, HEX);
+        Serial.print(" | IOIN: 0x"); Serial.println(ioin, HEX);
+    }
   }
 }

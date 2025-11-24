@@ -6,28 +6,35 @@
 #define TMC2240_DIRECT_MODE 0x2D
 #define TMC2240_CHOPCONF 0x6C
 
-TMC2240Driver::TMC2240Driver(int cs_pin, int en_pin, int uart_en_pin, float r_sense)
-    : _cs_pin(cs_pin), _en_pin(en_pin), _uart_en_pin(uart_en_pin), _r_sense(r_sense),
-      _spi_settings(1000000, MSBFIRST, SPI_MODE3) // TMC2240 uses Mode 3 usually
+TMC2240Driver::TMC2240Driver(int cs_pin, int en_pin, int uart_en_pin, int miso_pin, int mosi_pin, int sck_pin, float r_ref, float phase_resistance, int max_current_ma)
+    : _cs_pin(cs_pin), _en_pin(en_pin), _uart_en_pin(uart_en_pin),
+      _miso_pin(miso_pin), _mosi_pin(mosi_pin), _sck_pin(sck_pin),
+      _r_ref(r_ref), _phase_resistance(phase_resistance), _max_current_ma(max_current_ma),
+      _spi_settings(1000000, MSBFIRST, SPI_MODE3) // Reduced to 1MHz for stability
 {
     // SimpleFOC StepperDriver defaults
-    voltage_power_supply = 12.0f;
-    voltage_limit = 12.0f;
+    voltage_power_supply = 24.0f;
+    voltage_limit = 16.0f;
 }
 
 int TMC2240Driver::init() {
     // Configure Pins
+
+    pinMode(_uart_en_pin, OUTPUT);
+    digitalWrite(_uart_en_pin, LOW); // Force SPI Mode
+
     pinMode(_cs_pin, OUTPUT);
     digitalWrite(_cs_pin, HIGH);
 
     pinMode(_en_pin, OUTPUT);
     digitalWrite(_en_pin, HIGH); // Disable (Active Low)
 
-    pinMode(_uart_en_pin, OUTPUT);
-    digitalWrite(_uart_en_pin, LOW); // Force SPI Mode
 
     // Initialize SPI
-    // We assume standard SPI0 pins are used by default SPI object
+    // Use board-specific pins passed in constructor
+    SPI.setRX(_miso_pin);
+    SPI.setTX(_mosi_pin);
+    SPI.setSCK(_sck_pin);
     SPI.begin();
 
     // Wait for driver to boot
@@ -42,12 +49,24 @@ int TMC2240Driver::init() {
     gconf |= (1 << 16); // Set direct_mode
     writeRegister(TMC2240_GCONF, gconf);
 
-    // 2. Set IHOLD_IRUN
-    // IHOLD=31 (Max scaling for Direct Mode), IRUN=31, IHOLDDELAY=1
-    // Bits: 0-4 IHOLD, 8-12 IRUN, 16-19 IHOLDDELAY
+    // 2. Set IHOLD_IRUN based on Max Current
+    // Calculate Full Scale Current (IFS) based on RREF (Datasheet: IFS = 3.0A * 12k / RREF)
+    float full_scale_max = 3.0f * 12000.0f / _r_ref;
+    float target_max = _max_current_ma / 1000.0f;
+
+    // Clamp target to hardware limit
+    if (target_max > full_scale_max) target_max = full_scale_max;
+
+    // Calculate Current Setting (CS) for IHOLD (0-31)
+    uint8_t cs = (uint8_t)((target_max / full_scale_max) * 31.0f);
+    if (cs > 31) cs = 31;
+
+    // Store actual scaled current for voltageToCurrentCode
+    _actual_max_current = full_scale_max * ((float)(cs + 1) / 32.0f);
+
     uint32_t ihold_irun = 0;
-    ihold_irun |= (31 << 0);  // IHOLD = 31
-    ihold_irun |= (31 << 8);  // IRUN = 31
+    ihold_irun |= (cs << 0);  // IHOLD = CS
+    ihold_irun |= (cs << 8);  // IRUN = CS
     ihold_irun |= (1 << 16);  // IHOLDDELAY = 1
     writeRegister(TMC2240_IHOLD_IRUN, ihold_irun);
 
@@ -87,6 +106,11 @@ void TMC2240Driver::setPwm(float Ua, float Ub) {
     writeRegister(TMC2240_DIRECT_MODE, direct_reg);
 }
 
+void TMC2240Driver::setMotorConfig(float phase_resistance, int max_current_ma) {
+    _phase_resistance = phase_resistance;
+    _max_current_ma = max_current_ma;
+}
+
 void TMC2240Driver::setPhaseState(PhaseState sa, PhaseState sb) {
     if (sa == PhaseState::PHASE_OFF && sb == PhaseState::PHASE_OFF) {
         disable();
@@ -96,28 +120,24 @@ void TMC2240Driver::setPhaseState(PhaseState sa, PhaseState sb) {
 }
 
 int16_t TMC2240Driver::voltageToCurrentCode(float voltage) {
-    // I = V / R_phase (approx)
-    // But we don't know R_phase here easily unless passed.
-    // Let's assume 'voltage' passed by SimpleFOC is actually 'Target Voltage'.
-    // If we want to map this to Current, we need a scaling factor.
-    // For now, let's assume voltage_limit maps to Max Current (255).
+    // 1. Ohm's Law: I_target = V / R
+    float i_target = voltage / _phase_resistance;
 
-    float max_v = voltage_limit;
-    if (max_v < 0.1f) max_v = 12.0f; // Safety
+    // 2. Scale to Driver Limit: Ratio = I_target / I_max
+    float ratio = i_target / _actual_max_current;
 
-    float ratio = voltage / max_v;
-
-    // Clamp ratio -1 to 1
+    // 3. Clamp
     if (ratio > 1.0f) ratio = 1.0f;
     if (ratio < -1.0f) ratio = -1.0f;
 
-    // Map to -255 to 255
+    // 4. Map to -255..255
     return (int16_t)(ratio * 255.0f);
 }
 
 void TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     SPI.beginTransaction(_spi_settings);
     digitalWrite(_cs_pin, LOW);
+    delayMicroseconds(1);
 
     // TMC2240 SPI Format: 40 bits
     // Byte 0: Register Address + Write bit (0x80)
@@ -129,16 +149,33 @@ void TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     SPI.transfer((data >> 8) & 0xFF);
     SPI.transfer(data & 0xFF);
 
+    delayMicroseconds(1);
     digitalWrite(_cs_pin, HIGH);
     SPI.endTransaction();
 }
 
 uint32_t TMC2240Driver::readRegister(uint8_t reg) {
+    // Transaction 1: Request Read
     SPI.beginTransaction(_spi_settings);
     digitalWrite(_cs_pin, LOW);
+    delayMicroseconds(1);
 
-    // Read request: Address (Bit 7 = 0) + 4 Dummy Bytes
-    // MISO returns: Status + 32-bit Data
+    SPI.transfer(reg & 0x7F);
+    SPI.transfer(0);
+    SPI.transfer(0);
+    SPI.transfer(0);
+    SPI.transfer(0);
+
+    delayMicroseconds(1);
+    digitalWrite(_cs_pin, HIGH);
+    SPI.endTransaction();
+
+    // Transaction 2: Retrieve Data (and trigger next read, effectively a dummy read)
+    // We repeat the read command to get the data requested in Transaction 1.
+    // The data returned here is the result of Transaction 1.
+    SPI.beginTransaction(_spi_settings);
+    digitalWrite(_cs_pin, LOW);
+    delayMicroseconds(1);
 
     uint8_t status = SPI.transfer(reg & 0x7F);
     uint32_t data = 0;
@@ -147,6 +184,7 @@ uint32_t TMC2240Driver::readRegister(uint8_t reg) {
     data |= (uint32_t)SPI.transfer(0) << 8;
     data |= (uint32_t)SPI.transfer(0);
 
+    delayMicroseconds(1);
     digitalWrite(_cs_pin, HIGH);
     SPI.endTransaction();
 
@@ -157,4 +195,16 @@ float TMC2240Driver::getChipTemperature() {
     uint32_t adc_val = readRegister(0x51); // ADC_TEMP
     // Formula: T = (ADC - 2038) / 7.7
     return ((float)(adc_val & 0xFFF) - 2038.0f) / 7.7f;
+}
+
+uint32_t TMC2240Driver::getGSTAT() {
+    return readRegister(0x01); // GSTAT
+}
+
+uint32_t TMC2240Driver::getDRVSTATUS() {
+    return readRegister(0x6F); // DRV_STATUS
+}
+
+uint32_t TMC2240Driver::getIOIN() {
+    return readRegister(0x04); // IOIN
 }
