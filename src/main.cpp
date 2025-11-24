@@ -35,7 +35,24 @@ StepperMotor motor = StepperMotor(50);
 // Commander Callbacks
 bool monitor_enabled = false;
 void doSafety(char* cmd) { safety.commander(cmd); }
-void doTarget(char* cmd) { command.motion(&motor, cmd); }
+void doEnable(char* cmd) {
+    motor.enable();
+    Serial.println("Motor Enabled.");
+}
+
+void doDisable(char* cmd) {
+    motor.disable();
+    Serial.println("Motor Disabled.");
+}
+
+void doTarget(char* cmd) {
+    if(!motor.enabled) {
+        Serial.println("Error: Motor disabled. Use 'N' to enable.");
+        return;
+    }
+    command.motion(&motor, cmd);
+}
+
 void doMonitor(char* cmd) {
     monitor_enabled = !monitor_enabled;
     if(monitor_enabled) Serial.println("Monitor: ON");
@@ -164,6 +181,8 @@ void setup() {
   command.add('B', doBootloader, "Enter Bootloader");
   command.add('D', doDebug, "Decode Registers");
   command.add('E', doEstop, "ESTOP");
+  command.add('N', doEnable, "Enable Motor");
+  command.add('F', doDisable, "Disable Motor");
 
   Serial.println("Ready. Mode: Closed Loop Position");
 }
