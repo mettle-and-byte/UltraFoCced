@@ -98,6 +98,13 @@ void doDebug(char* cmd) {
     Serial.print("  Version: 0x"); Serial.println((ioin >> 24) & 0xFF, HEX);
 }
 
+void doEstop(char* cmd) {
+    Serial.println("!!! ESTOP TRIGGERED !!!");
+    motor.disable();
+    driver.disable();
+    Serial.println("Motor and Driver Disabled.");
+}
+
 // Helper for SafetyMonitor
 float readMotorTemp() {
     return driver.getChipTemperature();
@@ -111,6 +118,8 @@ void setup() {
   unsigned long start = millis();
   while (!Serial && millis() - start < 5000);
   Serial.println("MnB Ultralight N17 Firmware - Phase 4 (Motor + Temp + Encoder Fix)");
+  Serial.print("Config: Max Current = "); Serial.print(motor_max_current_ma); Serial.println(" mA");
+  Serial.print("Config: Phase Res = "); Serial.print(motor_phase_resistance); Serial.println(" Ohm");
 
   // Initialize Safety Monitor
   safety.setMotorTempCallback(readMotorTemp);
@@ -123,21 +132,30 @@ void setup() {
   // Link Encoder to Motor
   motor.linkSensor(&sensor);
 
+  // Calculate Virtual Voltage Limits
+  // V = I * R
+  float max_voltage = (motor_max_current_ma / 1000.0f) * motor_phase_resistance;
+
+  Serial.print("Config: Virtual Voltage Limit = "); Serial.print(max_voltage); Serial.println(" V");
+
   // Initialize Driver
-  driver.voltage_power_supply = 24.0f; // Assume 24V
-  driver.voltage_limit = 12.0f; // Limit for safety
+  driver.voltage_power_supply = max_voltage;
+  driver.voltage_limit = max_voltage;
   driver.init();
 
   // Link Driver to Motor
   motor.linkDriver(&driver);
 
   // Configure Motor
-  motor.controller = MotionControlType::velocity_openloop; // Start with open loop
-  motor.voltage_limit = 6.0f; // Low voltage for open loop test
+  motor.controller = MotionControlType::angle; // Closed Loop Position
+  motor.voltage_limit = max_voltage; // Torque Limit
+  motor.velocity_limit = 20.0f;
+  motor.PID_velocity.P = 0.2f;
+  motor.P_angle.P = 20.0f;
 
   // Initialize Motor
   motor.init();
-  // motor.initFOC(); // Skip for open loop
+  motor.initFOC();
 
   // Add Commander commands
   command.add('S', doSafety, "Safety Monitor");
@@ -145,8 +163,9 @@ void setup() {
   command.add('M', doMonitor, "Toggle Monitor");
   command.add('B', doBootloader, "Enter Bootloader");
   command.add('D', doDebug, "Decode Registers");
+  command.add('E', doEstop, "ESTOP");
 
-  Serial.println("Ready. Mode: Open Loop Velocity");
+  Serial.println("Ready. Mode: Closed Loop Position");
 }
 
 void loop() {
@@ -155,7 +174,6 @@ void loop() {
   if (millis() - last_blink > 500) {
     last_blink = millis();
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-    // Serial.println("DEBUG: Heartbeat"); // Optional: Uncomment if loop hangs
   }
 
   // Run Safety Monitor
@@ -163,63 +181,27 @@ void loop() {
 
   // Run Motor
   motor.move();
-  sensor.update(); // Keep updating sensor for telemetry
+  motor.loopFOC();
 
   // Run Commander
   command.run();
 
   // Periodic Angle Query
   static unsigned long last_angle_query = 0;
-  if (millis() - last_angle_query > 200) {
+  if (millis() - last_angle_query > 100) {
     last_angle_query = millis();
 
     if (monitor_enabled) {
-        float angle_deg = sensor.getAngle() * (180.0 / PI);
-        uint16_t agc = sensor.readMagnitude();
-        bool error = sensor.isErrorFlag();
+        float target = motor.target;
+        float current = sensor.getAngle();
+        float voltage_q = motor.voltage.q;
+        float voltage_d = motor.voltage.d;
 
-        float temp = driver.getChipTemperature();
-        uint32_t gstat = driver.getGSTAT();
-        uint32_t drv_status = driver.getDRVSTATUS();
-        uint32_t gconf = driver.readRegister(0x00); // GCONF
-        uint32_t ioin = driver.getIOIN();
-        uint32_t adc_raw = driver.readRegister(0x51); // Raw ADC
-
-        // Debug Encoder Error
-        uint16_t enc_err = 0;
-        if(error) {
-            // Manual read of ERRFL (0x0001)
-            // Command: Read (Bit 14) | Address 0x0001 | Parity (Bit 15)
-            // 0x4001 (Binary 0100 0000 0000 0001) -> 2 bits set -> Parity 0 -> 0x4001
-
-            SPISettings enc_settings(1000000, MSBFIRST, SPI_MODE1);
-            pio_spi.beginTransaction(enc_settings);
-            digitalWrite(ENC_CS, LOW);
-            pio_spi.transfer16(0x4001); // Send Command
-            digitalWrite(ENC_CS, HIGH);
-            pio_spi.endTransaction();
-
-            delayMicroseconds(10);
-
-            pio_spi.beginTransaction(enc_settings);
-            digitalWrite(ENC_CS, LOW);
-            enc_err = pio_spi.transfer16(0xC000); // Read Result (NOP)
-            digitalWrite(ENC_CS, HIGH);
-            pio_spi.endTransaction();
-
-            enc_err &= 0x3FFF; // Mask data
-        }
-
-        Serial.print("Angle: "); Serial.print(angle_deg); Serial.print(" deg");
-        Serial.print(" | AGC: "); Serial.print(agc);
-        Serial.print(" | Err: "); Serial.print(error ? "YES" : "NO");
-        if(error) { Serial.print(" (0x"); Serial.print(enc_err, HEX); Serial.print(")"); }
-        Serial.print(" | Temp: "); Serial.print(temp);
-        Serial.print(" | ADC: 0x"); Serial.print(adc_raw, HEX);
-        Serial.print(" | GSTAT: 0x"); Serial.print(gstat, HEX);
-        Serial.print(" | DRV: 0x"); Serial.print(drv_status, HEX);
-        Serial.print(" | GCONF: 0x"); Serial.print(gconf, HEX);
-        Serial.print(" | IOIN: 0x"); Serial.println(ioin, HEX);
+        Serial.print("Tgt: "); Serial.print(target, 3);
+        Serial.print(" | Cur: "); Serial.print(current, 3);
+        Serial.print(" | Vq: "); Serial.print(voltage_q, 2);
+        Serial.print(" | Vd: "); Serial.print(voltage_d, 2);
+        Serial.print(" | Err: "); Serial.println(sensor.isErrorFlag() ? "YES" : "NO");
     }
   }
 }

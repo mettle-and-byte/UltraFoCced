@@ -12,9 +12,6 @@ TMC2240Driver::TMC2240Driver(int cs_pin, int en_pin, int uart_en_pin, int miso_p
       _r_ref(r_ref), _phase_resistance(phase_resistance), _max_current_ma(max_current_ma),
       _spi_settings(1000000, MSBFIRST, SPI_MODE3) // Reduced to 1MHz for stability
 {
-    // SimpleFOC StepperDriver defaults
-    voltage_power_supply = 24.0f;
-    voltage_limit = 16.0f;
 }
 
 int TMC2240Driver::init() {
@@ -42,6 +39,37 @@ int TMC2240Driver::init() {
 
     // Configure TMC2240
 
+    // 0. Set DRV_CONF: Set Current Range (Bits 1..0)
+    // Select the best Full Scale Range to maximize resolution.
+    // Table 17 (RREF=12k):
+    // 10 -> KIFS = 36 -> IFS = 3.0A
+    // 01 -> KIFS = 24 -> IFS = 2.0A
+    // 00 -> KIFS = 11.75 -> IFS = ~1.0A
+
+    float ifs_3A = 36000.0f / _r_ref;
+    float ifs_2A = 24000.0f / _r_ref;
+    float ifs_1A = 11750.0f / _r_ref;
+
+    float target_amps = _max_current_ma / 1000.0f;
+    uint8_t drv_conf_bits = 0;
+    float selected_ifs = 0;
+
+    if (target_amps <= ifs_1A) {
+        drv_conf_bits = 0x00;
+        selected_ifs = ifs_1A;
+    } else if (target_amps <= ifs_2A) {
+        drv_conf_bits = 0x01;
+        selected_ifs = ifs_2A;
+    } else {
+        drv_conf_bits = 0x02; // 3A
+        selected_ifs = ifs_3A;
+    }
+
+    uint32_t drv_conf = readRegister(0x0A); // DRV_CONF
+    drv_conf &= ~(0x03); // Clear bits 1..0
+    drv_conf |= drv_conf_bits;
+    writeRegister(0x0A, drv_conf);
+
     // 1. Set GCONF: Enable Direct Mode (Bit 16)
     // Read current GCONF first? No, just overwrite for now or read-modify-write
     // Reset value is 0x00000000 usually
@@ -50,8 +78,8 @@ int TMC2240Driver::init() {
     writeRegister(TMC2240_GCONF, gconf);
 
     // 2. Set IHOLD_IRUN based on Max Current
-    // Calculate Full Scale Current (IFS) based on RREF (Datasheet: IFS = 3.0A * 12k / RREF)
-    float full_scale_max = 3.0f * 12000.0f / _r_ref;
+    // Use the selected Full Scale Current (selected_ifs)
+    float full_scale_max = selected_ifs;
     float target_max = _max_current_ma / 1000.0f;
 
     // Clamp target to hardware limit
