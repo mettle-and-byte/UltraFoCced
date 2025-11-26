@@ -34,17 +34,25 @@ void Core0::setup() {
 
     // Configure Motor
     motor.controller = MotionControlType::angle; // Closed Loop Position
+    motor.torque_controller = TorqueControlType::voltage; // Voltage Control (FOC)
     motor.voltage_limit = max_voltage; // Torque Limit
-    motor.current_limit = motor_max_current_ma / 1000.0f;
-    motor.velocity_limit = 100.0f;
-    motor.motion_downsample = 4.0;
+    motor.current_limit = motor_max_current_ma / 1000.0f; // Current Limit (Virtual)
 
-    motor.PID_velocity.P = 0.25;
-    motor.PID_velocity.I = 5.0;
+    // Velocity PID
+    motor.PID_velocity.P = 0.5;
+    motor.PID_velocity.I = 10.0;
     motor.PID_velocity.D = 0.0;
-    motor.PID_velocity.output_ramp = 500.0;
-    motor.PID_velocity.limit = 20.0;
+    motor.PID_velocity.output_ramp = 1000.0;
+    motor.PID_velocity.limit = max_voltage;
     motor.LPF_velocity.Tf = 0.1;
+
+    // Angle PID
+    motor.P_angle.P = 20.0;
+    motor.P_angle.I = 0.0;
+    motor.P_angle.D = 0.0;
+    motor.P_angle.output_ramp = 0.0;
+    motor.P_angle.limit = 200.0; // Max Velocity
+    motor.LPF_angle.Tf = 0.0;
 
     motor.phase_resistance = motor_phase_resistance;
 
@@ -58,8 +66,6 @@ void Core0::setup() {
     // Initialize Motor
     motor.init();
     motor.initFOC();
-
-    serial_stream.println("Ready. Mode: Closed Loop Position");
 }
 
 void Core0::loop() {
