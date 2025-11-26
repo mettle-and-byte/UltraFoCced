@@ -70,5 +70,5 @@ void Core0::loop() {
     motor.loopFOC();
     motor.move();
 
-    //motor.monitor();
+    motor.monitor();
 }

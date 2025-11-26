@@ -18,8 +18,6 @@ void Core1::setup() {
     pinMode(LED_PIN, OUTPUT);
     Serial.begin(115200);
 
-    command.eol = '\r'; // Match picocom default
-
     // Add Commander commands
     command.add('M', doMotor, "motor");
     command.add('S', doSafety, "Safety Monitor");
@@ -28,10 +26,18 @@ void Core1::setup() {
 }
 
 void Core1::loop() {
-    // 1. Run Commander (Reads from Serial directly)
+    // 1. Bridge Serial (RX) -> QueueStream (for Commander)
+    while (Serial.available()) {
+        int c = Serial.read();
+        if (c != -1) {
+            serial_stream.pushRX((uint8_t)c);
+        }
+    }
+
+    // 2. Run Commander (now reads from QueueStream)
     command.run();
 
-    // 2. Bridge QueueStream (TX) -> Serial (Monitor Output from Core 0)
+    // 3. Bridge QueueStream (TX) -> Serial (Monitor Output from Core 0)
     // Pop and write as much as possible
     while (true) {
         int c = serial_stream.popTX();
@@ -39,7 +45,7 @@ void Core1::loop() {
         Serial.write((uint8_t)c);
     }
 
-    // 3. Check Overflow (TX from Core 0)
+    // 4. Check Overflow (TX from Core 0)
     uint32_t overflow = serial_stream.getAndClearOverflow();
     if (overflow > 0) {
         Serial.print("Warn: TX Buffer Overflow! Dropped ");

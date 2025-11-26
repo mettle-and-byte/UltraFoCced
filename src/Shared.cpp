@@ -21,4 +21,4 @@ TMC2240Driver driver(DRV_CS, DRV_EN, DRV_UART_EN, DRV_MISO, DRV_MOSI, DRV_SCK, T
 
 StepperMotor motor = StepperMotor(motor_pole_pairs);
 
-Commander command = Commander(Serial);
+Commander command = Commander(serial_stream);
