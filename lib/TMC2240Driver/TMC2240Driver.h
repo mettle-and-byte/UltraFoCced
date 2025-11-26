@@ -14,6 +14,7 @@ public:
     void setPwm(float Ua, float Ub);
     void setPhaseState(PhaseState sa, PhaseState sb);
     void setMotorConfig(float phase_resistance, int max_current_ma);
+    void setChopperConfig(uint8_t toff, uint8_t tbl, uint8_t hstrt, uint8_t hend);
 
     // Configuration
     float voltage_power_supply;
@@ -40,6 +41,12 @@ private:
     int _max_current_ma;
     float _actual_max_current;
     SPISettings _spi_settings;
+
+    // Chopper Config
+    uint8_t _toff = 3;
+    uint8_t _tbl = 2;
+    uint8_t _hstrt = 4;
+    uint8_t _hend = 1;
 };
 
 #endif // TMC2240_DRIVER_H

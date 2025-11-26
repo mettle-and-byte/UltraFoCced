@@ -10,7 +10,7 @@ TMC2240Driver::TMC2240Driver(int cs_pin, int en_pin, int uart_en_pin, int miso_p
     : _cs_pin(cs_pin), _en_pin(en_pin), _uart_en_pin(uart_en_pin),
       _miso_pin(miso_pin), _mosi_pin(mosi_pin), _sck_pin(sck_pin),
       _r_ref(r_ref), _phase_resistance(phase_resistance), _max_current_ma(max_current_ma),
-      _spi_settings(1000000, MSBFIRST, SPI_MODE3) // Reduced to 1MHz for stability
+      _spi_settings(4000000, MSBFIRST, SPI_MODE3) // Run SPI at 4MHz
 {
 }
 
@@ -46,11 +46,12 @@ int TMC2240Driver::init() {
     // 01 -> KIFS = 24 -> IFS = 2.0A
     // 00 -> KIFS = 11.75 -> IFS = ~1.0A
 
-    float ifs_3A = 36000.0f / _r_ref;
-    float ifs_2A = 24000.0f / _r_ref;
-    float ifs_1A = 11750.0f / _r_ref;
+    const float ifs_3A = 36000.0f / _r_ref;
+    const float ifs_2A = 24000.0f / _r_ref;
+    const float ifs_1A = 11750.0f / _r_ref;
 
-    float target_amps = _max_current_ma / 1000.0f;
+    const float target_amps = _max_current_ma / 1000.0f;
+
     uint8_t drv_conf_bits = 0;
     float selected_ifs = 0;
 
@@ -70,12 +71,7 @@ int TMC2240Driver::init() {
     drv_conf |= drv_conf_bits;
     writeRegister(0x0A, drv_conf);
 
-    // 1. Set GCONF: Enable Direct Mode (Bit 16)
-    // Read current GCONF first? No, just overwrite for now or read-modify-write
-    // Reset value is 0x00000000 usually
-    uint32_t gconf = readRegister(TMC2240_GCONF);
-    gconf |= (1 << 16); // Set direct_mode
-    writeRegister(TMC2240_GCONF, gconf);
+
 
     // 2. Set IHOLD_IRUN based on Max Current
     // Use the selected Full Scale Current (selected_ifs)
@@ -98,11 +94,22 @@ int TMC2240Driver::init() {
     ihold_irun |= (1 << 16);  // IHOLDDELAY = 1
     writeRegister(TMC2240_IHOLD_IRUN, ihold_irun);
 
-    // 3. Set CHOPCONF (Optional, but good defaults help)
-    // TOFF=3, HSTRT=4, HEND=1, TBL=2, CHM=0 (SpreadCycle)
-    // This is less critical in Direct Mode as we control current targets,
-    // but the chopper still runs.
-    // Default reset value is usually okay.
+    // 3. Set CHOPCONF
+    // Use configured values (or defaults: TOFF=3, TBL=2, HSTRT=4, HEND=1)
+    // CHM=0 (SpreadCycle)
+    uint32_t chopconf = 0;
+    chopconf |= (_toff & 0x0F);          // TOFF
+    chopconf |= ((_hstrt & 0x07) << 4);  // HSTRT
+    chopconf |= ((_hend & 0x0F) << 7);   // HEND
+    chopconf |= ((_tbl & 0x03) << 15);   // TBL
+    chopconf &= ~(1 << 14);              // CHM = 0 (SpreadCycle)
+    writeRegister(TMC2240_CHOPCONF, chopconf);
+
+    // 4. Set GCONF: Enable Direct Mode (Bit 16) and Disable StealthChop (Bit 2)
+    uint32_t gconf = readRegister(TMC2240_GCONF);
+    gconf |= (1 << 16); // Set direct_mode
+    gconf &= ~(1 << 2); // Clear en_pwm_mode (Disable StealthChop)
+    writeRegister(TMC2240_GCONF, gconf);
 
     // Enable Driver
     enable();
@@ -137,6 +144,13 @@ void TMC2240Driver::setPwm(float Ua, float Ub) {
 void TMC2240Driver::setMotorConfig(float phase_resistance, int max_current_ma) {
     _phase_resistance = phase_resistance;
     _max_current_ma = max_current_ma;
+}
+
+void TMC2240Driver::setChopperConfig(uint8_t toff, uint8_t tbl, uint8_t hstrt, uint8_t hend) {
+    _toff = toff;
+    _tbl = tbl;
+    _hstrt = hstrt;
+    _hend = hend;
 }
 
 void TMC2240Driver::setPhaseState(PhaseState sa, PhaseState sb) {

@@ -22,15 +22,18 @@ SimplePioSPI pio_spi(ENC_MOSI, ENC_MISO, ENC_SCK, DUMMY_CS, pio0, 0);
 MagneticSensorAS5047 sensor = MagneticSensorAS5047(ENC_CS);
 
 // Motor Configuration (Will be loaded from config.ini later)
-float motor_phase_resistance = 2.5f;
-int motor_max_current_ma = 2000;
+// 60mm Ooznest NEMA 17
+// 2 Ohm Phase Resistance
+// 1000 mA Peak Current
+float motor_phase_resistance = 2.0f;
+int motor_max_current_ma = 2500;
+int motor_pole_pairs = 50; // 50 for 1.8deg, 100 for 0.9deg
 
 // Instantiate Motor Driver
 TMC2240Driver driver(DRV_CS, DRV_EN, DRV_UART_EN, DRV_MISO, DRV_MOSI, DRV_SCK, TMC2240_RREF, motor_phase_resistance, motor_max_current_ma);
 
 // Instantiate Motor
-// 50 pole pairs for 1.8deg stepper
-StepperMotor motor = StepperMotor(50);
+StepperMotor motor = StepperMotor(motor_pole_pairs);
 
 // Commander Callbacks
 bool monitor_enabled = false;
@@ -44,6 +47,8 @@ void doDisable(char* cmd) {
     motor.disable();
     Serial.println("Motor Disabled.");
 }
+
+void doMotor(char* cmd){command.motor(&motor, cmd);}
 
 void doTarget(char* cmd) {
     if(!motor.enabled) {
@@ -149,6 +154,7 @@ void setup() {
   // Link Encoder to Motor
   motor.linkSensor(&sensor);
 
+
   // Calculate Virtual Voltage Limits
   // V = I * R
   float max_voltage = (motor_max_current_ma / 1000.0f) * motor_phase_resistance;
@@ -166,61 +172,61 @@ void setup() {
   // Configure Motor
   motor.controller = MotionControlType::angle; // Closed Loop Position
   motor.voltage_limit = max_voltage; // Torque Limit
-  motor.velocity_limit = 20.0f;
-  motor.PID_velocity.P = 0.2f;
-  motor.P_angle.P = 20.0f;
+  motor.current_limit = motor_max_current_ma / 1000.0f;
+  motor.velocity_limit = 100.0f;
+  motor.motion_downsample = 4.0;
+
+  motor.PID_velocity.P = 0.25;
+  motor.PID_velocity.I = 5.0;
+  motor.PID_velocity.D = 0.0;
+  motor.PID_velocity.output_ramp = 500.0;
+  motor.PID_velocity.limit = 20.0;
+  motor.LPF_velocity.Tf = 0.1;
+
+  motor.phase_resistance = motor_phase_resistance;
+
+
+  motor.useMonitoring(Serial);
+
+  motor.monitor_downsample = 1000;
 
   // Initialize Motor
   motor.init();
   motor.initFOC();
 
   // Add Commander commands
+  command.add('M',doMotor,"motor");
   command.add('S', doSafety, "Safety Monitor");
-  command.add('T', doTarget, "Motor Target");
-  command.add('M', doMonitor, "Toggle Monitor");
+  /*command.add('T', doTarget, "Motor Target");
+  command.add('X', doMonitor, "Toggle Monitor");
+  */
   command.add('B', doBootloader, "Enter Bootloader");
+  /*
   command.add('D', doDebug, "Decode Registers");
   command.add('E', doEstop, "ESTOP");
   command.add('N', doEnable, "Enable Motor");
-  command.add('F', doDisable, "Disable Motor");
+  command.add('F', doDisable, "Disable Motor");*/
 
   Serial.println("Ready. Mode: Closed Loop Position");
 }
 
 void loop() {
   // Heartbeat
-  static unsigned long last_blink = 0;
+  /*static unsigned long last_blink = 0;
   if (millis() - last_blink > 500) {
     last_blink = millis();
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-  }
+  }*/
 
   // Run Safety Monitor
   safety.run();
 
   // Run Motor
-  motor.move();
   motor.loopFOC();
+  motor.move();
+
+  motor.monitor();
 
   // Run Commander
   command.run();
-
-  // Periodic Angle Query
-  static unsigned long last_angle_query = 0;
-  if (millis() - last_angle_query > 100) {
-    last_angle_query = millis();
-
-    if (monitor_enabled) {
-        float target = motor.target;
-        float current = sensor.getAngle();
-        float voltage_q = motor.voltage.q;
-        float voltage_d = motor.voltage.d;
-
-        Serial.print("Tgt: "); Serial.print(target, 3);
-        Serial.print(" | Cur: "); Serial.print(current, 3);
-        Serial.print(" | Vq: "); Serial.print(voltage_q, 2);
-        Serial.print(" | Vd: "); Serial.print(voltage_d, 2);
-        Serial.print(" | Err: "); Serial.println(sensor.isErrorFlag() ? "YES" : "NO");
-    }
-  }
 }
