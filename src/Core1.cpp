@@ -19,9 +19,9 @@ void doDebug(char* cmd) {
     Serial.print("Motor Phase Resistance: "); Serial.println(motor.phase_resistance, 4);
     Serial.print("Motor Current Q: "); Serial.println(motor.current.q, 4);
     Serial.print("Motor Voltage Q: "); Serial.println(motor.voltage.q, 4);
-    Serial.print("Driver Has Critical Error: "); Serial.println(driver.hasCriticalError() ? "YES" : "NO");
+    Serial.print("Driver Has Error: "); Serial.println(driver.hasDriverError() ? "YES" : "NO");
     Serial.print("Driver GSTAT: 0x"); Serial.println(driver.getGSTAT(), HEX);
-    Serial.print("Driver DRV_STATUS: 0x"); Serial.println(driver.getDRVSTATUS(), HEX);
+    Serial.print("Driver DRV_STATUS: 0x"); Serial.println(driver.getDriverStatusFlags(), HEX);
     Serial.print("Driver IOIN: 0x"); Serial.println(driver.getIOIN(), HEX);
     Serial.println("------------------");
 }

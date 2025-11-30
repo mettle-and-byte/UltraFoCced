@@ -2,7 +2,19 @@
 #define TMC2240_DRIVER_H
 
 #include <Arduino.h>
-#include <SimpleFOC.h>
+#include "drivers/StepperDriver.h"
+#include <SPI.h>
+
+// DRV_STATUS flag bit positions
+#define DRV_STATUS_STANDSTILL (1UL << 31)
+#define DRV_STATUS_OLB        (1UL << 30)  // Open Load Phase B
+#define DRV_STATUS_OLA        (1UL << 29)  // Open Load Phase A
+#define DRV_STATUS_S2GB       (1UL << 28)  // Short to Ground Phase B
+#define DRV_STATUS_S2GA       (1UL << 27)  // Short to Ground Phase A
+#define DRV_STATUS_SG2        (1UL << 24)  // StallGuard flag
+
+// Critical error flags (disable motor immediately)
+#define DRV_STATUS_CRITICAL (DRV_STATUS_S2GA | DRV_STATUS_S2GB | DRV_STATUS_OLA | DRV_STATUS_OLB)
 
 class TMC2240Driver : public StepperDriver {
 public:
@@ -29,19 +41,14 @@ public:
     uint32_t getDRVSTATUS();
     uint32_t getIOIN();
 
-    // Driver fault checking API
-    bool hasCriticalError();  // Returns true if any critical fault is active
-    uint32_t getDriverFaults();  // Returns DRV_STATUS register and updates fault state
-    void clearFaultFlags();  // Clear latched fault state
+    // Driver status checking API
+    bool hasDriverError();           // Fast check - returns true if driver_error flag was set (no SPI)
+    uint32_t getDriverStatusFlags(); // Reads DRV_STATUS register and returns bitmap of active flags
+    void clearFaultFlags();          // Clear latched fault state
 
 private:
     // Internal fault tracking
     bool _hasFault = false;
-    uint32_t _lastDrvStatus = 0;
-
-    // Status byte helpers (bits 39-32 of SPI response)
-    bool hasDriverError(uint8_t status) { return (status >> 1) & 0x01; }  // GSTAT[1]
-    bool hasResetFlag(uint8_t status) { return status & 0x01; }            // GSTAT[0]
 
     // Internal method to check SPI status byte
     void checkDriverStatus(uint8_t status);

@@ -60,39 +60,49 @@ void SafetyMonitor::updateTemperature() {
 }
 
 void SafetyMonitor::checkSafety() {
-    // Check driver faults using new API
     extern TMC2240Driver driver;
     extern StepperMotor motor;
     extern QueueStream serial_stream;
 
-    if (driver.hasCriticalError()) {
-        // Get fault details
-        uint32_t drv_status = driver.getDriverFaults();
+    // Fast check every loop - no SPI transaction
+    if (driver.hasDriverError()) {
+        // Critical fault detected - get details immediately
+        uint32_t drv_status = driver.getDriverStatusFlags();
         uint32_t gstat = driver.getGSTAT();
 
         // Log fault details
-        serial_stream.print("Driver Fault! GSTAT=0x");
+        serial_stream.print("CRITICAL Driver Fault! GSTAT=0x");
         serial_stream.print(gstat, HEX);
         serial_stream.print(" DRV_STATUS=0x");
         serial_stream.println(drv_status, HEX);
 
-        // Decode fault flags
-        bool s2ga = (drv_status >> 27) & 0x01;
-        bool s2gb = (drv_status >> 28) & 0x01;
-        bool ola = (drv_status >> 29) & 0x01;
-        bool olb = (drv_status >> 30) & 0x01;
+        // Decode critical fault flags using constants
+        if (drv_status & DRV_STATUS_S2GA) serial_stream.println("  S2GA: Short to Ground Phase A");
+        if (drv_status & DRV_STATUS_S2GB) serial_stream.println("  S2GB: Short to Ground Phase B");
+        if (drv_status & DRV_STATUS_OLA) serial_stream.println("  OLA: Open Load Phase A");
+        if (drv_status & DRV_STATUS_OLB) serial_stream.println("  OLB: Open Load Phase B");
 
-        if (s2ga) serial_stream.println("  S2GA: Short to Ground Phase A");
-        if (s2gb) serial_stream.println("  S2GB: Short to Ground Phase B");
-        if (ola) serial_stream.println("  OLA: Open Load Phase A");
-        if (olb) serial_stream.println("  OLB: Open Load Phase B");
-
-        // Disable motor
+        // Disable motor immediately
         motor.disable();
 
-        serial_stream.println("Motor disabled. Use 'ME1' then 'MCF' to clear faults and re-enable.");
+        serial_stream.println("Motor disabled. Use 'C' to clear faults, then 'ME1' to re-enable.");
+    }
 
-        // Note: Don't auto-clear faults - user must explicitly clear with MCF command
+    // Periodic status check (~100ms) for non-critical flags
+    static unsigned long last_status_check = 0;
+    unsigned long now = millis();
+    if (now - last_status_check > 100) {
+        last_status_check = now;
+
+        uint32_t drv_status = driver.getDriverStatusFlags();
+
+        // Log non-critical status flags (info only, don't disable motor)
+        if (drv_status & DRV_STATUS_STANDSTILL) {
+            // Motor is in standstill - this is normal, don't log every time
+        }
+        if (drv_status & DRV_STATUS_SG2) {
+            serial_stream.println("Info: StallGuard active");
+        }
     }
 
     // Then check temperature safety

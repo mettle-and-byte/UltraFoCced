@@ -259,29 +259,25 @@ uint32_t TMC2240Driver::getIOIN() {
 }
 
 void TMC2240Driver::checkDriverStatus(uint8_t status) {
-    // Check if driver_error flag is set (bit 1 of SPI status)
-    if (hasDriverError(status)) {
+    // Check if driver_error flag is set (bit 1 of SPI status - GSTAT[1])
+    if ((status >> 1) & 0x01) {
         // Fault detected - read DRV_STATUS to get details
         _lastDrvStatus = readRegister(0x6F);  // DRV_STATUS
         _hasFault = true;
     }
 }
 
-bool TMC2240Driver::hasCriticalError() {
+bool TMC2240Driver::hasDriverError() {
+    // Fast check - just return the flag, no SPI transaction
     return _hasFault;
 }
 
-uint32_t TMC2240Driver::getDriverFaults() {
-    // Update fault state by reading DRV_STATUS
+uint32_t TMC2240Driver::getDriverStatusFlags() {
+    // Read DRV_STATUS register
     _lastDrvStatus = readRegister(0x6F);  // DRV_STATUS
 
-    // Check for any critical faults
-    bool s2ga = (_lastDrvStatus >> 27) & 0x01;  // Short to Ground Phase A
-    bool s2gb = (_lastDrvStatus >> 28) & 0x01;  // Short to Ground Phase B
-    bool ola = (_lastDrvStatus >> 29) & 0x01;   // Open Load Phase A
-    bool olb = (_lastDrvStatus >> 30) & 0x01;   // Open Load Phase B
-
-    _hasFault = (s2ga || s2gb || ola || olb);
+    // Update fault state based on critical flags
+    _hasFault = (_lastDrvStatus & DRV_STATUS_CRITICAL) != 0;
 
     return _lastDrvStatus;
 }
