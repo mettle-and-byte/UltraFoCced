@@ -21,7 +21,6 @@ extern SafetyMonitor safety;
 
 // Global Flags
 extern bool monitor_enabled;
-extern volatile bool driver_fault_detected;  // Set in ISR, cleared in main loop
 
 // Motor Parameters (Configurable)
 extern float motor_phase_resistance;

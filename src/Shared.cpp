@@ -7,7 +7,6 @@ int motor_pole_pairs = 50;
 
 // Global Flags
 bool monitor_enabled = false;
-volatile bool driver_fault_detected = false;
 
 // Global Objects
 QueueStream serial_stream(1024); // 1KB buffer

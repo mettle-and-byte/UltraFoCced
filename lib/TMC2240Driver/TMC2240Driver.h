@@ -29,11 +29,22 @@ public:
     uint32_t getDRVSTATUS();
     uint32_t getIOIN();
 
+    // Driver fault checking API
+    bool hasCriticalError();  // Returns true if any critical fault is active
+    uint32_t getDriverFaults();  // Returns DRV_STATUS register and updates fault state
+    void clearFaultFlags();  // Clear latched fault state
+
+private:
+    // Internal fault tracking
+    bool _hasFault = false;
+    uint32_t _lastDrvStatus = 0;
+
     // Status byte helpers (bits 39-32 of SPI response)
     bool hasDriverError(uint8_t status) { return (status >> 1) & 0x01; }  // GSTAT[1]
     bool hasResetFlag(uint8_t status) { return status & 0x01; }            // GSTAT[0]
 
-private:
+    // Internal method to check SPI status byte
+    void checkDriverStatus(uint8_t status);
     int _cs_pin;
     int _en_pin;
     int _uart_en_pin;

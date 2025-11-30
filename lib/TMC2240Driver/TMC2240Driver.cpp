@@ -138,14 +138,8 @@ void TMC2240Driver::setPwm(float Ua, float Ub) {
     direct_reg |= (codeA & 0x1FF); // Mask to 9 bits
     direct_reg |= ((codeB & 0x1FF) << 16);
 
-    // Write to driver and capture SPI status byte
-    uint8_t status = writeRegister(TMC2240_DIRECT_MODE, direct_reg);
-
-    // Check for driver error (bit 1) - sets flag for main loop to handle
-    extern volatile bool driver_fault_detected;
-    if (hasDriverError(status)) {
-        driver_fault_detected = true;
-    }
+    // Write to driver - status is checked internally
+    writeRegister(TMC2240_DIRECT_MODE, direct_reg);
 }
 
 void TMC2240Driver::setMotorConfig(float phase_resistance, int max_current_ma) {
@@ -203,6 +197,9 @@ uint8_t TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     digitalWrite(_cs_pin, HIGH);
     SPI.endTransaction();
 
+    // Check status byte for faults
+    checkDriverStatus(status);
+
     return status;  // Return SPI status byte
 }
 
@@ -259,4 +256,39 @@ uint32_t TMC2240Driver::getDRVSTATUS() {
 
 uint32_t TMC2240Driver::getIOIN() {
     return readRegister(0x04); // IOIN
+}
+
+void TMC2240Driver::checkDriverStatus(uint8_t status) {
+    // Check if driver_error flag is set (bit 1 of SPI status)
+    if (hasDriverError(status)) {
+        // Fault detected - read DRV_STATUS to get details
+        _lastDrvStatus = readRegister(0x6F);  // DRV_STATUS
+        _hasFault = true;
+    }
+}
+
+bool TMC2240Driver::hasCriticalError() {
+    return _hasFault;
+}
+
+uint32_t TMC2240Driver::getDriverFaults() {
+    // Update fault state by reading DRV_STATUS
+    _lastDrvStatus = readRegister(0x6F);  // DRV_STATUS
+
+    // Check for any critical faults
+    bool s2ga = (_lastDrvStatus >> 27) & 0x01;  // Short to Ground Phase A
+    bool s2gb = (_lastDrvStatus >> 28) & 0x01;  // Short to Ground Phase B
+    bool ola = (_lastDrvStatus >> 29) & 0x01;   // Open Load Phase A
+    bool olb = (_lastDrvStatus >> 30) & 0x01;   // Open Load Phase B
+
+    _hasFault = (s2ga || s2gb || ola || olb);
+
+    return _lastDrvStatus;
+}
+
+void TMC2240Driver::clearFaultFlags() {
+    // Clear GSTAT by writing all 1s
+    writeRegister(0x01, 0xFFFFFFFF);
+    _hasFault = false;
+    _lastDrvStatus = 0;
 }

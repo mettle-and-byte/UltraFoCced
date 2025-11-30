@@ -39,10 +39,10 @@ void Core0::setup() {
 
     serial_stream.print("Config: Virtual Voltage Limit = "); serial_stream.print(max_voltage); serial_stream.println(" V");
 
-    // Initialize Driver
+
+    driver.init();    // Initialize Driver
     driver.voltage_power_supply = max_voltage;
     driver.voltage_limit = max_voltage;
-    driver.init();
 
     // Link Driver to Motor
     motor.linkDriver(&driver);
@@ -79,12 +79,18 @@ void Core0::setup() {
     safety.init();
 
     // Initialize Motor
-    motor.init();
-    motor.initFOC();
+    if(motor.init() == false) {
+        Serial.println("Motor init failed");
+        while(1);
+    }
+    if(motor.initFOC() == false) {
+        Serial.println("FOC init failed");
+        while(1);
+    }
 }
 
 void Core0::loop() {
-    // Run Safety Monitor (now handles driver faults)
+    // Run Safety Monitor
     safety.run();
 
     // Motor monitoring

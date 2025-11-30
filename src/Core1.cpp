@@ -19,11 +19,17 @@ void doDebug(char* cmd) {
     Serial.print("Motor Phase Resistance: "); Serial.println(motor.phase_resistance, 4);
     Serial.print("Motor Current Q: "); Serial.println(motor.current.q, 4);
     Serial.print("Motor Voltage Q: "); Serial.println(motor.voltage.q, 4);
-    Serial.print("Driver Fault Detected: "); Serial.println(driver_fault_detected ? "YES" : "NO");
+    Serial.print("Driver Has Critical Error: "); Serial.println(driver.hasCriticalError() ? "YES" : "NO");
     Serial.print("Driver GSTAT: 0x"); Serial.println(driver.getGSTAT(), HEX);
     Serial.print("Driver DRV_STATUS: 0x"); Serial.println(driver.getDRVSTATUS(), HEX);
     Serial.print("Driver IOIN: 0x"); Serial.println(driver.getIOIN(), HEX);
     Serial.println("------------------");
+}
+
+void doMotorClearFaults(char* cmd) {
+    Serial.println("Clearing driver faults...");
+    driver.clearFaultFlags();
+    Serial.println("Faults cleared. Re-enable motor with ME1 if needed.");
 }
 
 void Core1::setup() {
@@ -35,6 +41,7 @@ void Core1::setup() {
     command.add('S', doSafety, "Safety Monitor");
     command.add('B', doBootloader, "Enter Bootloader");
     command.add('D', doDebug, "Debug Info");
+    command.add('C', doMotorClearFaults, "Clear Motor Faults");
     delay(5000);
 }
 

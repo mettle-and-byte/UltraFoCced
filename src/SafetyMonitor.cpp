@@ -60,16 +60,15 @@ void SafetyMonitor::updateTemperature() {
 }
 
 void SafetyMonitor::checkSafety() {
-    // Check driver faults first
-    extern volatile bool driver_fault_detected;
+    // Check driver faults using new API
     extern TMC2240Driver driver;
     extern StepperMotor motor;
     extern QueueStream serial_stream;
 
-    if (driver_fault_detected) {
-        // Read detailed status (also clears GSTAT)
+    if (driver.hasCriticalError()) {
+        // Get fault details
+        uint32_t drv_status = driver.getDriverFaults();
         uint32_t gstat = driver.getGSTAT();
-        uint32_t drv_status = driver.getDRVSTATUS();
 
         // Log fault details
         serial_stream.print("Driver Fault! GSTAT=0x");
@@ -91,10 +90,9 @@ void SafetyMonitor::checkSafety() {
         // Disable motor
         motor.disable();
 
-        serial_stream.println("Motor disabled. Use 'ME1' to re-enable after fault resolution.");
+        serial_stream.println("Motor disabled. Use 'ME1' then 'MCF' to clear faults and re-enable.");
 
-        // Clear flag (GSTAT read already cleared it in driver)
-        driver_fault_detected = false;
+        // Note: Don't auto-clear faults - user must explicitly clear with MCF command
     }
 
     // Then check temperature safety
