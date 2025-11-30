@@ -198,7 +198,10 @@ uint8_t TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     SPI.endTransaction();
 
     // Check status byte for faults
-    checkDriverStatus(status);
+    // Check status byte for faults (GSTAT[1] = driver_error)
+    if ((status >> 1) & 0x01) {
+        _hasFault = true;
+    }
 
     return status;  // Return SPI status byte
 }
@@ -237,6 +240,12 @@ uint32_t TMC2240Driver::readRegister(uint8_t reg) {
     digitalWrite(_cs_pin, HIGH);
     SPI.endTransaction();
 
+    // Check status byte for faults
+    // Check status byte for faults (GSTAT[1] = driver_error)
+    if ((status >> 1) & 0x01) {
+        _hasFault = true;
+    }
+
     return data;
 }
 
@@ -251,6 +260,8 @@ uint32_t TMC2240Driver::getGSTAT() {
 }
 
 uint32_t TMC2240Driver::getDRVSTATUS() {
+    // Clear fault flag on read
+    _hasFault = false;
     return readRegister(0x6F); // DRV_STATUS
 }
 
@@ -258,33 +269,6 @@ uint32_t TMC2240Driver::getIOIN() {
     return readRegister(0x04); // IOIN
 }
 
-void TMC2240Driver::checkDriverStatus(uint8_t status) {
-    // Check if driver_error flag is set (bit 1 of SPI status - GSTAT[1])
-    if ((status >> 1) & 0x01) {
-        // Fault detected - read DRV_STATUS to get details
-        _lastDrvStatus = readRegister(0x6F);  // DRV_STATUS
-        _hasFault = true;
-    }
-}
-
 bool TMC2240Driver::hasDriverError() {
-    // Fast check - just return the flag, no SPI transaction
     return _hasFault;
-}
-
-uint32_t TMC2240Driver::getDriverStatusFlags() {
-    // Read DRV_STATUS register
-    _lastDrvStatus = readRegister(0x6F);  // DRV_STATUS
-
-    // Update fault state based on critical flags
-    _hasFault = (_lastDrvStatus & DRV_STATUS_CRITICAL) != 0;
-
-    return _lastDrvStatus;
-}
-
-void TMC2240Driver::clearFaultFlags() {
-    // Clear GSTAT by writing all 1s
-    writeRegister(0x01, 0xFFFFFFFF);
-    _hasFault = false;
-    _lastDrvStatus = 0;
 }

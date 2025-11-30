@@ -2,7 +2,7 @@
 #define TMC2240_DRIVER_H
 
 #include <Arduino.h>
-#include "drivers/StepperDriver.h"
+#include <SimpleFOC.h>
 #include <SPI.h>
 
 // DRV_STATUS flag bit positions
@@ -34,7 +34,7 @@ public:
 
     // Helpers
     int16_t voltageToCurrentCode(float voltage);
-    uint8_t writeRegister(uint8_t reg, uint32_t data);  // Now returns SPI status byte
+    uint8_t writeRegister(uint8_t reg, uint32_t data);
     uint32_t readRegister(uint8_t reg);
     float getChipTemperature();
     uint32_t getGSTAT();
@@ -42,16 +42,12 @@ public:
     uint32_t getIOIN();
 
     // Driver status checking API
-    bool hasDriverError();           // Fast check - returns true if driver_error flag was set (no SPI)
-    uint32_t getDriverStatusFlags(); // Reads DRV_STATUS register and returns bitmap of active flags
-    void clearFaultFlags();          // Clear latched fault state
+    bool hasDriverError();           // Returns true if driver_error flag was set
 
 private:
     // Internal fault tracking
     bool _hasFault = false;
 
-    // Internal method to check SPI status byte
-    void checkDriverStatus(uint8_t status);
     int _cs_pin;
     int _en_pin;
     int _uart_en_pin;

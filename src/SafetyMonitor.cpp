@@ -1,4 +1,5 @@
 #include "SafetyMonitor.h"
+#include "Shared.h"
 
 SafetyMonitor::SafetyMonitor(int fanPin, int endstopPin) {
     _fanPin = fanPin;
@@ -66,26 +67,21 @@ void SafetyMonitor::checkSafety() {
 
     // Fast check every loop - no SPI transaction
     if (driver.hasDriverError()) {
-        // Critical fault detected - get details immediately
-        uint32_t drv_status = driver.getDriverStatusFlags();
-        uint32_t gstat = driver.getGSTAT();
-
-        // Log fault details
-        serial_stream.print("CRITICAL Driver Fault! GSTAT=0x");
-        serial_stream.print(gstat, HEX);
-        serial_stream.print(" DRV_STATUS=0x");
-        serial_stream.println(drv_status, HEX);
-
-        // Decode critical fault flags using constants
-        if (drv_status & DRV_STATUS_S2GA) serial_stream.println("  S2GA: Short to Ground Phase A");
-        if (drv_status & DRV_STATUS_S2GB) serial_stream.println("  S2GB: Short to Ground Phase B");
-        if (drv_status & DRV_STATUS_OLA) serial_stream.println("  OLA: Open Load Phase A");
-        if (drv_status & DRV_STATUS_OLB) serial_stream.println("  OLB: Open Load Phase B");
-
         // Disable motor immediately
         motor.disable();
 
-        serial_stream.println("Motor disabled. Use 'C' to clear faults, then 'ME1' to re-enable.");
+        // Critical fault detected - get details immediately
+        uint32_t drv_status = driver.getDRVSTATUS();
+
+        // Decode critical fault flags using constants
+        serial_stream.print("CRITICAL Driver Fault:");
+        if (drv_status & DRV_STATUS_S2GA) serial_stream.print(" S2GA");
+        if (drv_status & DRV_STATUS_S2GB) serial_stream.print(" S2GB");
+        if (drv_status & DRV_STATUS_OLA) serial_stream.print(" OLA");
+        if (drv_status & DRV_STATUS_OLB) serial_stream.print(" OLB");
+        serial_stream.println();
+
+        serial_stream.println("Motor disabled. Use 'ME1' to re-enable.");
     }
 
     // Periodic status check (~100ms) for non-critical flags
@@ -94,7 +90,7 @@ void SafetyMonitor::checkSafety() {
     if (now - last_status_check > 100) {
         last_status_check = now;
 
-        uint32_t drv_status = driver.getDriverStatusFlags();
+        uint32_t drv_status = driver.getDRVSTATUS();
 
         // Log non-critical status flags (info only, don't disable motor)
         if (drv_status & DRV_STATUS_STANDSTILL) {
