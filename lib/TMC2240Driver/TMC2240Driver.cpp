@@ -138,7 +138,14 @@ void TMC2240Driver::setPwm(float Ua, float Ub) {
     direct_reg |= (codeA & 0x1FF); // Mask to 9 bits
     direct_reg |= ((codeB & 0x1FF) << 16);
 
-    writeRegister(TMC2240_DIRECT_MODE, direct_reg);
+    // Write to driver and capture SPI status byte
+    uint8_t status = writeRegister(TMC2240_DIRECT_MODE, direct_reg);
+
+    // Check for driver error (bit 1) - sets flag for main loop to handle
+    extern volatile bool driver_fault_detected;
+    if (hasDriverError(status)) {
+        driver_fault_detected = true;
+    }
 }
 
 void TMC2240Driver::setMotorConfig(float phase_resistance, int max_current_ma) {
@@ -176,7 +183,7 @@ int16_t TMC2240Driver::voltageToCurrentCode(float voltage) {
     return (int16_t)(ratio * 255.0f);
 }
 
-void TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
+uint8_t TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     SPI.beginTransaction(_spi_settings);
     digitalWrite(_cs_pin, LOW);
     delayMicroseconds(1);
@@ -184,8 +191,9 @@ void TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     // TMC2240 SPI Format: 40 bits
     // Byte 0: Register Address + Write bit (0x80)
     // Byte 1-4: Data (MSB first)
+    // First byte returned contains SPI status (bits 39-32)
 
-    SPI.transfer(reg | 0x80); // Write flag
+    uint8_t status = SPI.transfer(reg | 0x80); // Write flag - returns status
     SPI.transfer((data >> 24) & 0xFF);
     SPI.transfer((data >> 16) & 0xFF);
     SPI.transfer((data >> 8) & 0xFF);
@@ -194,6 +202,8 @@ void TMC2240Driver::writeRegister(uint8_t reg, uint32_t data) {
     delayMicroseconds(1);
     digitalWrite(_cs_pin, HIGH);
     SPI.endTransaction();
+
+    return status;  // Return SPI status byte
 }
 
 uint32_t TMC2240Driver::readRegister(uint8_t reg) {

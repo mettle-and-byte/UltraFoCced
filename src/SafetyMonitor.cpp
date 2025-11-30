@@ -60,6 +60,44 @@ void SafetyMonitor::updateTemperature() {
 }
 
 void SafetyMonitor::checkSafety() {
+    // Check driver faults first
+    extern volatile bool driver_fault_detected;
+    extern TMC2240Driver driver;
+    extern StepperMotor motor;
+    extern QueueStream serial_stream;
+
+    if (driver_fault_detected) {
+        // Read detailed status (also clears GSTAT)
+        uint32_t gstat = driver.getGSTAT();
+        uint32_t drv_status = driver.getDRVSTATUS();
+
+        // Log fault details
+        serial_stream.print("Driver Fault! GSTAT=0x");
+        serial_stream.print(gstat, HEX);
+        serial_stream.print(" DRV_STATUS=0x");
+        serial_stream.println(drv_status, HEX);
+
+        // Decode fault flags
+        bool s2ga = (drv_status >> 27) & 0x01;
+        bool s2gb = (drv_status >> 28) & 0x01;
+        bool ola = (drv_status >> 29) & 0x01;
+        bool olb = (drv_status >> 30) & 0x01;
+
+        if (s2ga) serial_stream.println("  S2GA: Short to Ground Phase A");
+        if (s2gb) serial_stream.println("  S2GB: Short to Ground Phase B");
+        if (ola) serial_stream.println("  OLA: Open Load Phase A");
+        if (olb) serial_stream.println("  OLB: Open Load Phase B");
+
+        // Disable motor
+        motor.disable();
+
+        serial_stream.println("Motor disabled. Use 'ME1' to re-enable after fault resolution.");
+
+        // Clear flag (GSTAT read already cleared it in driver)
+        driver_fault_detected = false;
+    }
+
+    // Then check temperature safety
     float motorTemp = 0.0f;
     if (_motorTempCallback) {
         motorTemp = _motorTempCallback();

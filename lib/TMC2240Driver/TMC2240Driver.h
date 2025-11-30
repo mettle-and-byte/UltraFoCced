@@ -22,12 +22,16 @@ public:
 
     // Helpers
     int16_t voltageToCurrentCode(float voltage);
-    void writeRegister(uint8_t reg, uint32_t data);
+    uint8_t writeRegister(uint8_t reg, uint32_t data);  // Now returns SPI status byte
     uint32_t readRegister(uint8_t reg);
     float getChipTemperature();
     uint32_t getGSTAT();
     uint32_t getDRVSTATUS();
     uint32_t getIOIN();
+
+    // Status byte helpers (bits 39-32 of SPI response)
+    bool hasDriverError(uint8_t status) { return (status >> 1) & 0x01; }  // GSTAT[1]
+    bool hasResetFlag(uint8_t status) { return status & 0x01; }            // GSTAT[0]
 
 private:
     int _cs_pin;

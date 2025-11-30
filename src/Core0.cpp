@@ -1,5 +1,20 @@
 #include "Core0.h"
 #include "Shared.h"
+#include <pico/time.h>
+
+// FOC Timer Configuration
+const uint32_t FOC_FREQUENCY_KHZ = 25;  // 25kHz
+const int32_t FOC_TIMER_PERIOD_US = -(1000000 / (FOC_FREQUENCY_KHZ * 1000));  // -40us
+
+// Global timer handle
+static struct repeating_timer foc_timer;
+
+// FOC callback - runs at 25kHz in hard real-time
+bool foc_timer_callback(struct repeating_timer *t) {
+    motor.move();      // Motion control first
+    motor.loopFOC();   // Then FOC algorithm
+    return true;       // Keep repeating
+}
 
 // Helper for SafetyMonitor
 float readMotorTemp() {
@@ -69,12 +84,9 @@ void Core0::setup() {
 }
 
 void Core0::loop() {
-    // Run Safety Monitor
+    // Run Safety Monitor (now handles driver faults)
     safety.run();
 
-    // Run Motor
-    motor.loopFOC();
-    motor.move();
-
+    // Motor monitoring
     motor.monitor();
 }
