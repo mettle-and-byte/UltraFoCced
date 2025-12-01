@@ -18,7 +18,11 @@ bool foc_timer_callback(struct repeating_timer *t) {
 
 // Helper for SafetyMonitor
 float readMotorTemp() {
-    return driver.getChipTemperature();
+    // Disable interrupts to prevent FOC ISR from colliding with this SPI transaction
+    noInterrupts();
+    float temp = driver.getChipTemperature();
+    interrupts();
+    return temp;
 }
 
 // --- Setup & Loop ---

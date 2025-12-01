@@ -71,8 +71,6 @@ int TMC2240Driver::init() {
     drv_conf |= drv_conf_bits;
     writeRegister(0x0A, drv_conf);
 
-
-
     // 2. Set IHOLD_IRUN based on Max Current
     // Use the selected Full Scale Current (selected_ifs)
     float full_scale_max = selected_ifs;
