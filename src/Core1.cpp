@@ -1,6 +1,7 @@
 #include "Core1.h"
 #include "Shared.h"
 #include <pico/bootrom.h>
+#include <hardware/watchdog.h>
 
 // --- Command Callbacks ---
 
@@ -8,10 +9,21 @@ void doSafety(char* cmd) { safety.commander(cmd); }
 
 void doMotor(char* cmd){command.motor(&motor, cmd);}
 
+void doTune(char* cmd) {
+    autotuner.startTuning();
+}
+
 void doBootloader(char* cmd) {
     Serial.println("Entering Bootloader...");
     delay(100);
     reset_usb_boot(0, 0);
+}
+
+void doReboot(char* cmd) {
+    Serial.println("Rebooting...");
+    delay(100);
+    watchdog_enable(1, 1);
+    while(1);
 }
 
 void doDebug(char* cmd) {
@@ -33,7 +45,9 @@ void Core1::setup() {
     // Add Commander commands
     command.add('M', doMotor, "motor");
     command.add('S', doSafety, "Safety Monitor");
+    command.add('T', doTune, "Auto-Tune");
     command.add('B', doBootloader, "Enter Bootloader");
+    command.add('R', doReboot, "Reboot");
     command.add('D', doDebug, "Debug Info");
     delay(5000);
 }
@@ -51,8 +65,13 @@ void Core1::loop() {
     command.run();
 
     // 3. Bridge QueueStream (TX) -> Serial (Monitor Output from Core 0)
-    // Pop and write as much as possible
+    // Pop and write as much as possible, but don't block if Serial is full/disconnected
     while (true) {
+        // Check if Serial can accept data
+        if (Serial.availableForWrite() <= 0) {
+            break;
+        }
+
         int c = serial_stream.popTX();
         if (c == -1) break;
         Serial.write((uint8_t)c);
