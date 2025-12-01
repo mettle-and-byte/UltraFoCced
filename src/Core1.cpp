@@ -32,9 +32,15 @@ void doDebug(char* cmd) {
     Serial.print("Motor Current Q: "); Serial.println(motor.current.q, 4);
     Serial.print("Motor Voltage Q: "); Serial.println(motor.voltage.q, 4);
     Serial.print("Driver Has Error: "); Serial.println(driver.hasDriverError() ? "YES" : "NO");
-    Serial.print("Driver GSTAT: 0x"); Serial.println(driver.getGSTAT(), HEX);
-    Serial.print("Driver DRV_STATUS: 0x"); Serial.println(driver.getDRVSTATUS(), HEX);
-    Serial.print("Driver IOIN: 0x"); Serial.println(driver.getIOIN(), HEX);
+
+    if (motor.enabled) {
+        Serial.println("WARNING: Cannot read driver registers while motor is enabled (SPI conflict).");
+        Serial.println("Disable motor (ME0) to view detailed driver status.");
+    } else {
+        Serial.print("Driver GSTAT: 0x"); Serial.println(driver.getGSTAT(), HEX);
+        Serial.print("Driver DRV_STATUS: 0x"); Serial.println(driver.getDRVSTATUS(), HEX);
+        Serial.print("Driver IOIN: 0x"); Serial.println(driver.getIOIN(), HEX);
+    }
     Serial.println("------------------");
 }
 
