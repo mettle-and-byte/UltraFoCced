@@ -5,3 +5,6 @@
 *.bin
 *.hex
 *.map
+
+logs/
+tools/
