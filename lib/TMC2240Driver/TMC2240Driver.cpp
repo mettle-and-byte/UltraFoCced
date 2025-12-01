@@ -10,7 +10,7 @@ TMC2240Driver::TMC2240Driver(int cs_pin, int en_pin, int uart_en_pin, int miso_p
     : _cs_pin(cs_pin), _en_pin(en_pin), _uart_en_pin(uart_en_pin),
       _miso_pin(miso_pin), _mosi_pin(mosi_pin), _sck_pin(sck_pin),
       _r_ref(r_ref), _phase_resistance(phase_resistance), _max_current_ma(max_current_ma),
-      _spi_settings(4000000, MSBFIRST, SPI_MODE3) // Run SPI at 4MHz
+      _spi_settings(8000000, MSBFIRST, SPI_MODE3) // Run SPI at 8MHz
 {
 }
 

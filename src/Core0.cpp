@@ -3,7 +3,7 @@
 #include <pico/time.h>
 
 // FOC Timer Configuration
-const uint32_t FOC_FREQUENCY_KHZ = 25;  // 25kHz
+const uint32_t FOC_FREQUENCY_KHZ = 10;  // 10kHz
 const int32_t FOC_TIMER_PERIOD_US = -(1000000 / (FOC_FREQUENCY_KHZ * 1000));  // -40us
 
 // Global timer handle
