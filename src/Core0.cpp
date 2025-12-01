@@ -39,10 +39,12 @@ void Core0::setup() {
 
     serial_stream.print("Config: Virtual Voltage Limit = "); serial_stream.print(max_voltage); serial_stream.println(" V");
 
-
-    driver.init();    // Initialize Driver
+    driver.setMotorConfig(motor_phase_resistance, motor_max_current_ma);
     driver.voltage_power_supply = max_voltage;
     driver.voltage_limit = max_voltage;
+
+    driver.init();    // Initialize Driver
+
 
     // Link Driver to Motor
     motor.linkDriver(&driver);
@@ -81,12 +83,20 @@ void Core0::setup() {
     // Initialize Motor
     if(motor.init() == false) {
         Serial.println("Motor init failed");
-        while(1);
     }
     if(motor.initFOC() == false) {
         Serial.println("FOC init failed");
-        while(1);
     }
+
+    // Start FOC timer
+    if (!add_repeating_timer_us(FOC_TIMER_PERIOD_US, foc_timer_callback, NULL, &foc_timer)) {
+        serial_stream.println("ERROR: Failed to start FOC timer!");
+        return;
+    }
+
+    serial_stream.print("FOC timer started at ");
+    serial_stream.print(FOC_FREQUENCY_KHZ);
+    serial_stream.println("kHz");
 }
 
 void Core0::loop() {

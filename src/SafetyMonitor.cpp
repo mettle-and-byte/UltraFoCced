@@ -1,5 +1,4 @@
 #include "SafetyMonitor.h"
-#include "Shared.h"
 
 SafetyMonitor::SafetyMonitor(int fanPin, int endstopPin) {
     _fanPin = fanPin;
@@ -61,12 +60,9 @@ void SafetyMonitor::updateTemperature() {
 }
 
 void SafetyMonitor::checkSafety() {
-    extern TMC2240Driver driver;
-    extern StepperMotor motor;
-    extern QueueStream serial_stream;
 
     // Fast check every loop - no SPI transaction
-    if (driver.hasDriverError()) {
+    /*if (driver.hasDriverError()) {
         // Disable motor immediately
         motor.disable();
 
@@ -82,24 +78,7 @@ void SafetyMonitor::checkSafety() {
         serial_stream.println();
 
         serial_stream.println("Motor disabled. Use 'ME1' to re-enable.");
-    }
-
-    // Periodic status check (~100ms) for non-critical flags
-    static unsigned long last_status_check = 0;
-    unsigned long now = millis();
-    if (now - last_status_check > 100) {
-        last_status_check = now;
-
-        uint32_t drv_status = driver.getDRVSTATUS();
-
-        // Log non-critical status flags (info only, don't disable motor)
-        if (drv_status & DRV_STATUS_STANDSTILL) {
-            // Motor is in standstill - this is normal, don't log every time
-        }
-        if (drv_status & DRV_STATUS_SG2) {
-            serial_stream.println("Info: StallGuard active");
-        }
-    }
+    }*/
 
     // Then check temperature safety
     float motorTemp = 0.0f;
